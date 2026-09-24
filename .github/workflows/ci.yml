@@ -41,7 +41,7 @@ jobs:
       SHOPAGENT_TEST_REDIS_URL: redis://localhost:6379/15
       SHOPAGENT_TEST_DATABASE_URL: mysql+pymysql://shopagent:shopagent_test_password@127.0.0.1:3306/shopagent_test
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -81,6 +81,6 @@ jobs:
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: docker build -t shopagent-pro:ci .
       - run: docker run --rm --entrypoint python shopagent-pro:ci -c "import shopagent; assert shopagent.__version__ == '1.0.0'"
