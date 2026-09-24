@@ -49,6 +49,7 @@ class Container:
     feedback: FeedbackLoopService
     knowledge_repository: KnowledgeRepository
     commerce: object
+    resources: tuple[object, ...] = ()
 
 
 def build_container(settings: Settings) -> Container:
@@ -77,14 +78,15 @@ def build_container(settings: Settings) -> Container:
     register_product_tools(tools, products)
     register_order_tools(tools, orders, after_sales)
     register_knowledge_tools(tools, knowledge)
-    tool_client = (
+    remote_tool_client = (
         RemoteMCPToolClient(
             settings.mcp_url,
             service_secret=settings.service_token,
         )
         if settings.tool_transport == "mcp"
-        else tools
+        else None
     )
+    tool_client = remote_tool_client or tools
     local_agents = AgentRegistry()
     local_agents.register(
         ProductAgent(tool_client),
@@ -108,20 +110,24 @@ def build_container(settings: Settings) -> Container:
     )
     if settings.agent_transport == "a2a":
         routing_agents = AgentRegistry()
+        remote_agents = []
         for descriptor in local_agents.describe():
             name = str(descriptor["name"])
             intents = tuple(Intent(value) for value in descriptor["intents"])
+            remote_agent = RemoteA2AAgent(
+                name,
+                f"{settings.a2a_base_url.rstrip('/')}/{name}",
+                service_secret=settings.service_token,
+            )
+            remote_agents.append(remote_agent)
             routing_agents.register(
-                RemoteA2AAgent(
-                    name,
-                    f"{settings.a2a_base_url.rstrip('/')}/{name}",
-                    service_secret=settings.service_token,
-                ),
+                remote_agent,
                 description=str(descriptor["description"]),
                 intents=intents,
             )
     else:
         routing_agents = local_agents
+        remote_agents = []
 
     intent_agent = IntentAgent()
     rule_provider = RuleIntentProvider(intent_agent)
@@ -163,4 +169,5 @@ def build_container(settings: Settings) -> Container:
         feedback=feedback,
         knowledge_repository=knowledge_repository,
         commerce=commerce,
+        resources=tuple(remote_agents) + ((remote_tool_client,) if remote_tool_client else ()),
     )

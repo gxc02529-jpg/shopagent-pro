@@ -1,0 +1,56 @@
+{"id":"search-01","content":"帮我找一下降噪耳机","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-02","content":"耳机多少钱","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-03","content":"有通勤双肩包吗","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-04","content":"想看看恒温杯商品","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-05","content":"背包价格是多少","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-06","content":"给我看看耳机","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"search-07","content":"杯子多少钱一个","expected_intent":"product_search","expected_agent":"product_agent","required_tools":["product.search"]}
+{"id":"detail-01","content":"SKU-1001 的规格参数","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-02","content":"SKU-1002 有哪些颜色","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-03","content":"SKU-2001 是什么材质","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-04","content":"SKU-3001 的商品详情","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-05","content":"SKU-1001 续航怎么样","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-06","content":"SKU-2001 参数是什么","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"detail-07","content":"SKU-3001 容量规格","expected_intent":"product_detail","expected_agent":"product_agent","required_tools":["product.detail"]}
+{"id":"stock-01","content":"SKU-1001 有库存吗","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-02","content":"SKU-1002 现在有货吗","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-03","content":"SKU-2001 是现货吗","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-04","content":"SKU-3001 还剩多少库存","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-05","content":"SKU-1002 什么时候补货","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-06","content":"查询 SKU-1001 的现货数量","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"stock-07","content":"SKU-2001 有货没有","expected_intent":"stock_query","expected_agent":"product_agent","required_tools":["product.stock"]}
+{"id":"order-01","content":"查询订单 ORD-20260001","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.detail"]}
+{"id":"order-02","content":"ORD-20260001 的物流到哪了","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.logistics"]}
+{"id":"order-03","content":"快递 ORD-20260001 什么时候送达","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.logistics"]}
+{"id":"order-04","content":"退款进度 ORD-20260002","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.refund"]}
+{"id":"order-05","content":"退款状态 ORD-20260002","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.refund"]}
+{"id":"order-06","content":"我的订单有哪些","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.list"]}
+{"id":"order-07","content":"ORD-20260002 是否签收","expected_intent":"order_query","expected_agent":"order_agent","required_tools":["order.detail"]}
+{"id":"after-01","content":"退货规则是什么","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["knowledge.search"]}
+{"id":"after-02","content":"运费险怎么理赔","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["knowledge.search"]}
+{"id":"after-03","content":"售后政策多久有效","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["knowledge.search"]}
+{"id":"after-04","content":"发票怎么申请","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["knowledge.search"]}
+{"id":"after-05","content":"我要退货 ORD-20260001，耳机不合适","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["after_sales.create"]}
+{"id":"after-06","content":"帮我申请换货 ORD-20260001","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["after_sales.create"]}
+{"id":"after-07","content":"我要投诉 ORD-20260002，包装破损","expected_intent":"after_sales","expected_agent":"after_sales_agent","required_tools":["after_sales.create"]}
+{"id":"recommend-01","content":"推荐适合通勤的降噪耳机","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-02","content":"预算 500 以内推荐耳机","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-03","content":"办公喝水选哪个好","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-04","content":"给我推荐一个通勤背包","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-05","content":"运动耳机选哪款","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-06","content":"哪个杯适合办公室","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"recommend-07","content":"有没有适合差旅的商品推荐","expected_intent":"recommendation","expected_agent":"recommendation_agent","required_tools":["product.search"]}
+{"id":"greeting-01","content":"你好","expected_intent":"greeting"}
+{"id":"greeting-02","content":"您好","expected_intent":"greeting"}
+{"id":"greeting-03","content":"hi","expected_intent":"greeting"}
+{"id":"greeting-04","content":"hello","expected_intent":"greeting"}
+{"id":"greeting-05","content":"你好呀","expected_intent":"greeting"}
+{"id":"greeting-06","content":"您好 ShopAgent","expected_intent":"greeting"}
+{"id":"greeting-07","content":"HI","expected_intent":"greeting"}
+{"id":"unknown-01","content":"今天天气怎么样","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-02","content":"帮我写一段代码","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-03","content":"讲一个笑话","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-04","content":"你是谁","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-05","content":"帮我订一张机票","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-06","content":"附近有什么餐厅","expected_intent":"unknown","expected_handoff":true}
+{"id":"unknown-07","content":"随便聊聊吧","expected_intent":"unknown","expected_handoff":true}

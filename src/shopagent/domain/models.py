@@ -120,6 +120,8 @@ class ChatResponse(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     tools_used: list[str] = Field(default_factory=list)
     routed_agent: str | None = None
+    routing_decision: str = ""
+    routing_threshold: float = Field(default=0.0, ge=0, le=1)
     need_human: bool = False
     latency_ms: float
 

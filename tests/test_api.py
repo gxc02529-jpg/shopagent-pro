@@ -26,6 +26,8 @@ def test_chat_and_trace_header():
     assert response.status_code == 200
     assert response.headers["x-trace-id"] == response.json()["trace_id"]
     assert response.json()["data"]["stock"] == 126
+    assert response.json()["routing_decision"] == "agent_delegated"
+    assert response.json()["routing_threshold"] == 0.80
 
 
 def test_trace_id_is_server_owned_and_correlation_id_is_echoed_separately():
@@ -63,6 +65,8 @@ def test_metrics_and_agent_discovery():
     metrics = client.get("/metrics")
     assert metrics.status_code == 200
     assert 'shopagent_tool_calls_total{tool="product_stock"} 1' in metrics.text
+    assert "shopagent_human_handoff_rate 0.0" in metrics.text
+    assert 'shopagent_agent_routed_total{agent="product_agent"} 1' in metrics.text
     agents = client.get("/ready").json()["agents"]
     assert {item["name"] for item in agents} == {
         "product_agent",

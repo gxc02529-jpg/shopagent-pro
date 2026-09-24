@@ -41,6 +41,9 @@ class CandidateReviewRequest(BaseModel):
 def create_app(settings: Settings | None = None, container: Container | None = None) -> FastAPI:
     settings = settings or get_settings()
     settings.validate_for_startup()
+    configured_log_level = getattr(logging, settings.log_level.upper())
+    logger.setLevel(configured_log_level)
+    logging.getLogger("httpx").setLevel(max(configured_log_level, logging.WARNING))
     container = container or build_container(settings)
 
     @asynccontextmanager
@@ -51,6 +54,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
             container.operations,
             container.knowledge_repository,
             container.commerce,
+            *container.resources,
         ):
             try:
                 await component.close()
@@ -230,6 +234,13 @@ def create_app(settings: Settings | None = None, container: Container | None = N
             lines.append(f'shopagent_intent_total{{intent="{intent}"}} {count}')
         lines.append("# TYPE shopagent_automation_rate gauge")
         lines.append(f"shopagent_automation_rate {board['automation_rate']}")
+        lines.append("# TYPE shopagent_human_handoff_rate gauge")
+        lines.append(f"shopagent_human_handoff_rate {board['handoff_rate']}")
+        lines.append("# TYPE shopagent_human_handoffs_total counter")
+        lines.append(f"shopagent_human_handoffs_total {board['human_handoffs']}")
+        lines.append("# TYPE shopagent_agent_routed_total counter")
+        for agent, count in board["agent_distribution"].items():
+            lines.append(f'shopagent_agent_routed_total{{agent="{agent}"}} {count}')
         if board["average_rating"] is not None:
             lines.append("# TYPE shopagent_average_rating gauge")
             lines.append(f"shopagent_average_rating {board['average_rating']}")

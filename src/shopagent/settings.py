@@ -9,10 +9,13 @@ class Settings(BaseSettings):
     env: str = "development"
     host: str = "0.0.0.0"
     port: int = 8080
+    log_level: str = "INFO"
     memory_backend: str = "memory"
     operations_backend: str = "memory"
     session_ttl_seconds: int = 1800
-    low_confidence_threshold: float = 0.55
+    # Calibrated on evaluation/agent_cases.jsonl. Re-run the calibration
+    # command whenever the intent model, prompt, labels or traffic mix changes.
+    low_confidence_threshold: float = 0.80
     cors_origins: str = "http://localhost:8080"
     admin_token: str = "dev-admin-token"
     service_token: str = "dev-service-token"
@@ -39,6 +42,10 @@ class Settings(BaseSettings):
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
     def validate_for_startup(self) -> None:
+        if self.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("SHOPAGENT_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR or CRITICAL")
+        if not 0 < self.low_confidence_threshold < 1:
+            raise ValueError("SHOPAGENT_LOW_CONFIDENCE_THRESHOLD must be between 0 and 1")
         if self.memory_backend not in {"memory", "redis"}:
             raise ValueError("SHOPAGENT_MEMORY_BACKEND must be memory or redis")
         if self.operations_backend not in {"memory", "mysql"}:

@@ -20,10 +20,20 @@ class RemoteMCPToolClient:
         self._service_secret = service_secret
         self._timeout = timeout_seconds
         self._ids = count(1)
+        self._client = None
+
+    def _http_client(self):
+        if self._client is None:
+            import httpx
+
+            self._client = httpx.AsyncClient(
+                timeout=self._timeout,
+                trust_env=False,
+                limits=httpx.Limits(max_connections=200, max_keepalive_connections=100),
+            )
+        return self._client
 
     async def call(self, name: str, *, agent_name: str, **arguments: Any) -> dict[str, Any]:
-        import httpx
-
         token = issue_token(
             self._service_secret,
             subject=agent_name,
@@ -46,9 +56,8 @@ class RemoteMCPToolClient:
             # effective identity from the signed token and ignores this value.
             "X-Agent-Name": agent_name,
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(self._endpoint, json=payload, headers=headers)
-            response.raise_for_status()
+        response = await self._http_client().post(self._endpoint, json=payload, headers=headers)
+        response.raise_for_status()
         body = response.json()
         if error := body.get("error"):
             raise RuntimeError(f"MCP error {error.get('code')}: {error.get('message')}")
@@ -59,3 +68,8 @@ class RemoteMCPToolClient:
         if not isinstance(structured, dict):
             raise TypeError("MCP response did not include structuredContent")
         return structured
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

@@ -21,12 +21,22 @@ class RemoteA2AAgent:
         self._endpoint = endpoint.rstrip("/")
         self._service_secret = service_secret
         self._timeout = timeout_seconds
+        self._client = None
+
+    def _http_client(self):
+        if self._client is None:
+            import httpx
+
+            self._client = httpx.AsyncClient(
+                timeout=self._timeout,
+                trust_env=False,
+                limits=httpx.Limits(max_connections=200, max_keepalive_connections=100),
+            )
+        return self._client
 
     async def execute(
         self, message: ChatMessage, intent: IntentResult, memory: SessionMemory
     ) -> AgentResult:
-        import httpx
-
         payload = {
             "message": {
                 "role": "ROLE_USER",
@@ -50,17 +60,16 @@ class RemoteA2AAgent:
             agent=self.name,
             ttl_seconds=60,
         )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                f"{self._endpoint}/message:send",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/a2a+json",
-                    "A2A-Version": "1.0",
-                },
-            )
-            response.raise_for_status()
+        response = await self._http_client().post(
+            f"{self._endpoint}/message:send",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/a2a+json",
+                "A2A-Version": "1.0",
+            },
+        )
+        response.raise_for_status()
         task = response.json()["task"]
         artifact = task["artifacts"][0]
         answer = next(part["text"] for part in artifact["parts"] if "text" in part)
@@ -71,3 +80,8 @@ class RemoteA2AAgent:
             tools_used=data.get("tools_used", []),
             degraded=task["status"]["state"] != "TASK_STATE_COMPLETED",
         )
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

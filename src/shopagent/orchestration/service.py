@@ -33,7 +33,7 @@ class ShopAgentOrchestrator:
         agents: AgentRegistry,
         memory_store: MemoryStore,
         operations: OperationsStore,
-        low_confidence_threshold: float = 0.55,
+        low_confidence_threshold: float = 0.80,
         llm: LLMProvider | None = None,
         guardrails_enabled: bool = False,
         redact_generated: bool = False,
@@ -80,24 +80,29 @@ class ShopAgentOrchestrator:
         memory = await self._memory.get(message.user_id, message.session_id)
         injection = self._guardrails_enabled and detect_prompt_injection(message.content)
         routed_agent: str | None = None
+        routing_decision = ""
         if injection:
             intent = IntentResult(intent=Intent.UNKNOWN, confidence=0.0, reason="prompt_injection")
             answer = SAFE_DEFLECTION
             data, tools_used, need_human = {}, [], True
+            routing_decision = "guardrail_handoff"
         else:
             intent = await self._resolve_intent(message.content)
             if intent.confidence < self._threshold or intent.intent == Intent.UNKNOWN:
                 answer = "我还不能准确判断你的需求。请补充商品名称或 SKU；订单与售后能力将在下一阶段接入。"
                 data, tools_used, need_human = {}, [], True
+                routing_decision = "low_confidence_handoff"
             elif intent.intent == Intent.GREETING:
                 answer = (
                     "你好，我是 ShopAgent。可以帮你查商品、价格、参数和库存，也可以按场景推荐。"
                 )
                 data, tools_used, need_human = {}, [], False
+                routing_decision = "orchestrator_direct"
             else:
                 agent = self._agents.resolve(intent.intent)
                 if agent:
                     routed_agent = agent.name
+                    routing_decision = "agent_delegated"
                     delegated_message = message.model_copy(
                         update={"context": {**message.context, "trace_id": trace_id}}
                     )
@@ -111,6 +116,7 @@ class ShopAgentOrchestrator:
                         data = {"error": "agent_unavailable", "retryable": True}
                         tools_used = []
                         need_human = True
+                        routing_decision = "agent_error_handoff"
                     else:
                         answer, data, tools_used = result.answer, result.data, result.tools_used
                         need_human = bool(
@@ -123,6 +129,7 @@ class ShopAgentOrchestrator:
                         [],
                         True,
                     )
+                    routing_decision = "capability_handoff"
 
         if self._redact_generated:
             answer = redact_sensitive_text(answer)
@@ -151,6 +158,8 @@ class ShopAgentOrchestrator:
             data=data,
             tools_used=tools_used,
             routed_agent=routed_agent,
+            routing_decision=routing_decision,
+            routing_threshold=self._threshold,
             need_human=need_human,
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
         )
