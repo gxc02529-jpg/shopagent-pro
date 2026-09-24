@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: shopagent_test
+          MYSQL_USER: shopagent
+          MYSQL_PASSWORD: shopagent_test_password
+          MYSQL_ROOT_PASSWORD: root_test_password
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uroot -proot_test_password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      SHOPAGENT_TEST_REDIS_URL: redis://localhost:6379/15
+      SHOPAGENT_TEST_DATABASE_URL: mysql+pymysql://shopagent:shopagent_test_password@127.0.0.1:3306/shopagent_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -m ruff check src tests
+      - run: python -m ruff format --check src tests
+      - run: python -m pytest --cov=shopagent --cov-report=term-missing --cov-report=xml --junitxml=junit.xml tests
+      - name: Annotate test failures
+        if: failure()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("junit.xml").getroot()
+          for case in root.iter("testcase"):
+              problem = case.find("failure")
+              if problem is None:
+                  problem = case.find("error")
+              if problem is None:
+                  continue
+              message = (problem.get("message") or problem.text or "pytest failure").strip()
+              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              name = f"{case.get('classname', '')}.{case.get('name', '')}".strip(".")
+              print(f"::error title={name}::{message}")
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always() && matrix.python-version == '3.12'
+        with:
+          name: test-reports
+          path: |
+            coverage.xml
+            junit.xml
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t shopagent-pro:ci .
+      - run: docker run --rm --entrypoint python shopagent-pro:ci -c "import shopagent; assert shopagent.__version__ == '1.0.0'"

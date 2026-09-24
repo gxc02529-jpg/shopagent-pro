@@ -1,0 +1,76 @@
+services:
+  shopagent:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SHOPAGENT_ENV: production
+      SHOPAGENT_MEMORY_BACKEND: redis
+      SHOPAGENT_OPERATIONS_BACKEND: mysql
+      SHOPAGENT_AGENT_TRANSPORT: a2a
+      SHOPAGENT_TOOL_TRANSPORT: mcp
+      SHOPAGENT_A2A_BASE_URL: http://127.0.0.1:8080/a2a
+      SHOPAGENT_MCP_URL: http://127.0.0.1:8080/mcp
+      SHOPAGENT_PUBLIC_BASE_URL: ${SHOPAGENT_PUBLIC_BASE_URL:-https://localhost:8080}
+      SHOPAGENT_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SHOPAGENT_DATABASE_URL: mysql+pymysql://shopagent:${MYSQL_PASSWORD}@mysql:3306/shopagent
+      SHOPAGENT_ADMIN_TOKEN: ${SHOPAGENT_ADMIN_TOKEN}
+      SHOPAGENT_SERVICE_TOKEN: ${SHOPAGENT_SERVICE_TOKEN}
+      SHOPAGENT_USER_TOKEN_SECRET: ${SHOPAGENT_USER_TOKEN_SECRET}
+      SHOPAGENT_CORS_ORIGINS: ${SHOPAGENT_CORS_ORIGINS:-https://localhost:8080}
+      SHOPAGENT_GUARDRAILS_ENABLED: "true"
+      SHOPAGENT_REDACT_GENERATED_ANSWERS: "true"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: shopagent
+      MYSQL_USER: shopagent
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - shopagent_mysql:/var/lib/mysql
+      - ./infra/mysql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\" --maxmemory-policy allkeys-lru"]
+    volumes:
+      - shopagent_redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  shopagent_mysql:
+  shopagent_redis:

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ShopAgent Pro</title>
+  <style>
+    :root{font-family:Inter,"Microsoft YaHei",sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0,#dce9ff 0,transparent 35%),#f4f7fb}
+    .shell{max-width:1060px;margin:auto;padding:32px 20px}.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{margin:0;font-size:26px}.tag{color:#3974e9;background:#e9f0ff;padding:7px 12px;border-radius:99px;font-size:13px}
+    .panel{background:#fff;border:1px solid #e4eaf3;border-radius:20px;box-shadow:0 18px 50px #1b3b7712;overflow:hidden}
+    #messages{height:570px;overflow:auto;padding:28px}.welcome{text-align:center;padding:70px 20px;color:#61708b}.welcome b{display:block;color:#172033;font-size:22px;margin-bottom:10px}
+    .msg{display:flex;margin:14px 0}.msg.user{justify-content:flex-end}.bubble{max-width:76%;padding:13px 16px;border-radius:16px;line-height:1.65;white-space:pre-wrap}.assistant .bubble{background:#f0f4fa}.user .bubble{background:#3974e9;color:white}
+    .composer{display:flex;gap:10px;padding:16px;border-top:1px solid #e8edf5}input{flex:1;padding:14px 16px;border:1px solid #ccd6e5;border-radius:12px;font-size:15px;outline:none}input:focus{border-color:#3974e9}button{border:0;border-radius:12px;padding:0 24px;background:#3974e9;color:white;font-weight:700;cursor:pointer}button:disabled{opacity:.5}
+    .tips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.tips button{padding:9px 12px;background:white;color:#3974e9;border:1px solid #cadaf7;font-weight:500}.access{display:flex;margin:0 0 12px}.access input{background:#ffffffcc;font-size:13px;padding:10px 12px}
+    .meta{font-size:12px;color:#8a96aa;margin-top:8px}.feedback{display:flex;gap:6px;margin-top:8px}.feedback button{padding:4px 9px;background:white;color:#68758c;border:1px solid #dbe2ec;font-size:12px;font-weight:500}.feedback button:hover{color:#3974e9;border-color:#3974e9}@media(max-width:700px){#messages{height:65vh}.bubble{max-width:90%}.shell{padding:16px 10px}.head{align-items:flex-start}}
+  </style>
+</head>
+<body><main class="shell">
+  <div class="head"><div><h1>ShopAgent Pro</h1><div class="meta">V1.0 · 多 Agent · A2A · MCP · SSE</div></div><span class="tag">● 服务在线</span></div>
+  <div class="access"><input id="userIdInput" placeholder="用户 ID"><input id="accessToken" type="password" placeholder="生产环境 Bearer Token（本地开发可留空）"></div>
+  <div class="tips"><button data-q="有适合通勤的降噪耳机吗">通勤耳机推荐</button><button data-q="SKU-1001 有库存吗">查询库存</button><button data-q="查询订单 ORD-20260001 的物流">订单物流</button><button data-q="订单 ORD-20260002 的背包破损，我要退货">创建售后</button></div>
+  <section class="panel"><div id="messages"><div class="welcome"><b>你好，我是电商智能客服</b>告诉我商品、预算或使用场景，我来帮你查找。</div></div>
+  <form id="form" class="composer"><input id="input" maxlength="4000" autocomplete="off" placeholder="输入商品问题，例如：SKU-1001 有货吗？"><button id="send">发送</button></form></section>
+</main><script>
+const messages=document.querySelector('#messages'),input=document.querySelector('#input'),form=document.querySelector('#form'),send=document.querySelector('#send'),accessToken=document.querySelector('#accessToken'),userIdInput=document.querySelector('#userIdInput');accessToken.value=sessionStorage.shopagent_user_token||'';accessToken.onchange=()=>sessionStorage.shopagent_user_token=accessToken.value;
+let userId=localStorage.sa_user||(localStorage.sa_user='demo-user');userIdInput.value=userId;userIdInput.onchange=()=>{userId=userIdInput.value.trim()||'demo-user';localStorage.sa_user=userId};const sessionId=localStorage.sa_session||(localStorage.sa_session=crypto.randomUUID());
+function authHeaders(){sessionStorage.shopagent_user_token=accessToken.value;return accessToken.value?{Authorization:'Bearer '+accessToken.value}:{}}
+function add(role,text=''){document.querySelector('.welcome')?.remove();const row=document.createElement('div');row.className='msg '+role;const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;row.appendChild(bubble);messages.appendChild(row);messages.scrollTop=messages.scrollHeight;return bubble}
+document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{input.value=b.dataset.q;form.requestSubmit()});
+form.onsubmit=async e=>{e.preventDefault();const content=input.value.trim();if(!content)return;input.value='';send.disabled=true;add('user',content);const bubble=add('assistant','思考中…');let answer='';
+try{const res=await fetch('/api/v1/chat/stream',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({channel:'web',user_id:userId,session_id:sessionId,content})});if(!res.ok)throw Error(await res.text());let doneData=null;
+const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const events=buffer.split('\n\n');buffer=events.pop();for(const block of events){const type=block.match(/^event: (.+)$/m)?.[1],raw=block.match(/^data: (.+)$/m)?.[1];if(!raw)continue;const data=JSON.parse(raw);if(type==='message'){answer+=data.chunk;bubble.textContent=answer;messages.scrollTop=messages.scrollHeight}else if(type==='done'){doneData=data}}}if(doneData){const meta=document.createElement('div');meta.className='meta';meta.textContent=`路由 ${doneData.routed_agent||'orchestrator'} · MCP工具 ${(doneData.tools_used||[]).join(', ')||'无'} · ${doneData.latency_ms}ms · trace ${doneData.trace_id.slice(0,8)}`;bubble.appendChild(meta);const feedback=document.createElement('div');feedback.className='feedback';feedback.innerHTML='<button>👍 有帮助</button><button>👎 需改进</button>';feedback.children[0].onclick=()=>submitFeedback(doneData.trace_id,5,'');feedback.children[1].onclick=()=>{const note=prompt('请告诉我们哪里需要改进（可选）')||'';submitFeedback(doneData.trace_id,1,note)};bubble.appendChild(feedback)}}
+catch(err){bubble.textContent='请求失败：'+err.message}finally{send.disabled=false;input.focus()}};
+async function submitFeedback(traceId,rating,comment){const res=await fetch('/api/v1/feedback',{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({trace_id:traceId,user_id:userId,rating,comment})});if(res.ok)alert(rating>2?'感谢你的评价！':'反馈已进入知识改进流程。');else alert('反馈提交失败')}
+</script></body></html>

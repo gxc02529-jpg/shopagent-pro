@@ -1,0 +1,1 @@
+"""Stable dependency-inversion ports."""
