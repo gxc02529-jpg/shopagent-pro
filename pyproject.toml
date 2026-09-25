@@ -25,9 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-infra = ["redis>=5.2,<8.0", "httpx>=0.27,<1.0"]
+infra = ["redis>=5.2,<9.0", "httpx>=0.27,<1.0"]
 enterprise = [
-  "redis>=5.2,<8.0",
+  "redis>=5.2,<9.0",
   "sqlalchemy>=2.0,<3.0",
   "pymysql>=1.1,<2.0",
   "httpx>=0.27,<1.0",
