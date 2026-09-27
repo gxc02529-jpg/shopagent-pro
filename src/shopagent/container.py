@@ -90,8 +90,13 @@ def build_container(settings: Settings) -> Container:
     local_agents = AgentRegistry()
     local_agents.register(
         ProductAgent(tool_client),
-        description="商品搜索、详情和库存查询",
-        intents=(Intent.PRODUCT_SEARCH, Intent.PRODUCT_DETAIL, Intent.STOCK_QUERY),
+        description="商品搜索、详情、库存和销售规则查询",
+        intents=(
+            Intent.PRODUCT_SEARCH,
+            Intent.PRODUCT_DETAIL,
+            Intent.STOCK_QUERY,
+            Intent.SALES_POLICY,
+        ),
     )
     local_agents.register(
         RecommendationAgent(tool_client),
@@ -156,6 +161,9 @@ def build_container(settings: Settings) -> Container:
         memory_store=memory,
         operations=operations,
         low_confidence_threshold=settings.low_confidence_threshold,
+        session_max_messages=settings.session_max_messages,
+        max_plan_tasks=settings.max_plan_tasks,
+        max_parallel_tasks=settings.max_parallel_tasks,
         llm=llm,
         guardrails_enabled=settings.guardrails_enabled,
         redact_generated=settings.redact_generated_answers,

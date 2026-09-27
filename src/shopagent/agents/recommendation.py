@@ -33,7 +33,30 @@ class RecommendationAgent:
         if budget is not None:
             products = [item for item in products if item["price"] <= budget]
         products = sorted(products, key=lambda item: (item["stock"] <= 0, item["price"]))[:3]
-        data.update({"products": products, "budget": budget})
+        cards = [
+            {
+                "type": "product",
+                "product_id": item["id"],
+                "title": item["name"],
+                "price": item["price"],
+                "stock": item["stock"],
+                "description": item["description"],
+                "actions": [
+                    {"type": "query_detail", "label": "查看详情", "product_id": item["id"]},
+                    {"type": "query_stock", "label": "查询库存", "product_id": item["id"]},
+                ],
+            }
+            for item in products
+        ]
+        data.update(
+            {
+                "products": products,
+                "budget": budget,
+                "cards": cards,
+                "recommendation_mode": "reactive",
+                "trigger": "explicit_user_intent",
+            }
+        )
         if not products:
             qualifier = f"预算 ¥{budget:.0f} 以内" if budget is not None else "当前条件下"
             return AgentResult(

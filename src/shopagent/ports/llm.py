@@ -42,6 +42,8 @@ class MockLLMProvider:
             return IntentResult(intent=Intent.RECOMMENDATION, confidence=0.9, reason="mock_rule")
         if any(k in lowered for k in ("库存", "有货", "现货", "补货")):
             return IntentResult(intent=Intent.STOCK_QUERY, confidence=0.9, reason="mock_rule")
+        if any(k in lowered for k in ("价保", "优惠券", "满减", "活动规则", "预售规则")):
+            return IntentResult(intent=Intent.SALES_POLICY, confidence=0.9, reason="mock_rule")
         if any(k in lowered for k in ("订单", "物流", "快递", "发货", "签收")):
             return IntentResult(intent=Intent.ORDER_QUERY, confidence=0.9, reason="mock_rule")
         if any(k in lowered for k in ("你好", "您好", "hi", "hello")):
@@ -74,7 +76,7 @@ class HttpLLMProvider:
         system = (
             "你是电商客服意图分类器。仅输出 JSON："
             '{"intent":"product_search|product_detail|stock_query|recommendation|'
-            'order_query|after_sales|greeting|unknown","confidence":0.0}'
+            'sales_policy|order_query|after_sales|greeting|unknown","confidence":0.0}'
         )
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

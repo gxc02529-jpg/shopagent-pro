@@ -5,7 +5,7 @@ import inspect
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, get_type_hints
+from typing import Any
 
 ToolHandler = Callable[..., Awaitable[dict[str, Any]]]
 
@@ -37,7 +37,12 @@ class ToolRuntime:
 
 
 class ToolRegistry:
-    """Small MCP-compatible boundary: discovery + authorization + invocation."""
+    """Tool discovery + authorization + invocation boundary.
+
+    Wire-protocol concerns (MCP JSON-RPC, tool schemas) live in the protocol
+    adapters; this registry owns the durable governance core: which agent may
+    call which tool, the circuit breaker, timeout and call metrics.
+    """
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -56,47 +61,25 @@ class ToolRegistry:
             if agent_name in spec.allowed_agents
         ]
 
-    def mcp_tools(self, agent_name: str) -> list[dict[str, Any]]:
-        return [
-            self._mcp_definition(spec)
-            for spec in self._tools.values()
-            if agent_name in spec.allowed_agents
-        ]
+    def authorize(self, name: str, agent_name: str) -> ToolSpec:
+        """Raise the discovery/authorization errors for a tool call without executing it.
 
-    @staticmethod
-    def _mcp_definition(spec: ToolSpec) -> dict[str, Any]:
-        properties: dict[str, dict[str, str]] = {}
-        required: list[str] = []
-        type_map = {str: "string", int: "integer", float: "number", bool: "boolean"}
-        type_hints = get_type_hints(spec.handler)
-        for name, parameter in inspect.signature(spec.handler).parameters.items():
-            annotation = type_hints.get(name, parameter.annotation)
-            properties[name] = {"type": type_map.get(annotation, "string")}
-            if parameter.default is inspect.Parameter.empty:
-                required.append(name)
-        schema: dict[str, Any] = {"type": "object", "properties": properties}
-        if required:
-            schema["required"] = required
-        read_only = not spec.name.startswith("after_sales.create")
-        return {
-            "name": spec.name,
-            "title": spec.name.replace(".", " ").title(),
-            "description": spec.description,
-            "inputSchema": schema,
-            "annotations": {
-                "readOnlyHint": read_only,
-                "destructiveHint": False,
-                "idempotentHint": read_only,
-                "openWorldHint": True,
-            },
-        }
-
-    async def call(self, name: str, *, agent_name: str, **arguments: Any) -> dict[str, Any]:
+        Kept separate from :meth:`call` so protocol adapters can enforce the same
+        agent scope at the boundary (e.g. an MCP ``tools/call`` handler) and map the
+        error to the protocol's own error code before any side effect runs.
+        """
         spec = self._tools.get(name)
         if not spec:
             raise KeyError(f"unknown tool: {name}")
         if agent_name not in spec.allowed_agents:
             raise PermissionError(f"agent {agent_name} cannot call {name}")
+        return spec
+
+    def specs(self) -> list[ToolSpec]:
+        return list(self._tools.values())
+
+    async def call(self, name: str, *, agent_name: str, **arguments: Any) -> dict[str, Any]:
+        spec = self.authorize(name, agent_name)
         try:
             inspect.signature(spec.handler).bind(**arguments)
         except TypeError as exc:

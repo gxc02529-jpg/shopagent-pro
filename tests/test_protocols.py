@@ -9,90 +9,101 @@ def client() -> TestClient:
 
 
 def test_mcp_initialize_list_and_call_tool():
-    api = client()
-    initialized = api.post(
-        "/mcp",
-        json={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": {"name": "test", "version": "1"},
+    with client() as api:
+        initialized = api.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"},
+                },
             },
-        },
-    ).json()
-    assert initialized["result"]["protocolVersion"] == "2025-11-25"
-    assert "tools" in initialized["result"]["capabilities"]
+        ).json()
+        assert initialized["result"]["protocolVersion"] == "2025-11-25"
+        assert "tools" in initialized["result"]["capabilities"]
 
-    listed = api.post(
-        "/mcp",
-        headers={"X-Agent-Name": "product_agent", "MCP-Protocol-Version": "2025-11-25"},
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-    ).json()
-    names = {tool["name"] for tool in listed["result"]["tools"]}
-    assert names == {
-        "product.search",
-        "product.detail",
-        "product.stock",
-        "knowledge.search",
-    }
-    assert listed["result"]["tools"][0]["inputSchema"]["type"] == "object"
+        # tools/list is intentionally unfiltered (call-layer authorization): every
+        # registered tool is discoverable, while tools/call enforces per-agent scope.
+        listed = api.post(
+            "/mcp",
+            headers={"X-Agent-Name": "product_agent"},
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        ).json()
+        names = {tool["name"] for tool in listed["result"]["tools"]}
+        assert names == {
+            "product.search",
+            "product.detail",
+            "product.stock",
+            "order.list",
+            "order.detail",
+            "order.logistics",
+            "order.refund",
+            "after_sales.create",
+            "after_sales.get",
+            "knowledge.search",
+        }
+        assert listed["result"]["tools"][0]["inputSchema"]["type"] == "object"
 
-    called = api.post(
-        "/mcp",
-        headers={"X-Agent-Name": "product_agent", "MCP-Protocol-Version": "2025-11-25"},
-        json={
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
-        },
-    ).json()
-    assert called["result"]["isError"] is False
-    assert called["result"]["structuredContent"]["stock"] == 126
+        called = api.post(
+            "/mcp",
+            headers={"X-Agent-Name": "product_agent"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
+            },
+        ).json()
+        assert called["result"]["isError"] is False
+        assert called["result"]["structuredContent"]["stock"] == 126
 
 
 def test_mcp_enforces_agent_tool_scope():
-    api = client()
-    response = api.post(
-        "/mcp",
-        headers={"X-Agent-Name": "order_agent"},
-        json={
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
-        },
-    ).json()
-    assert response["error"]["code"] == -32602
+    with client() as api:
+        response = api.post(
+            "/mcp",
+            headers={"X-Agent-Name": "order_agent"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
+            },
+        ).json()
+        assert response["error"]["code"] == -32602
 
 
 def test_malformed_mcp_calls_do_not_trip_tool_circuit():
-    api = client()
-    malformed = {
-        "jsonrpc": "2.0",
-        "id": 5,
-        "method": "tools/call",
-        "params": {"name": "product.stock", "arguments": {"wrong": "SKU-1001"}},
-    }
-    for _ in range(5):
-        response = api.post(
-            "/mcp", headers={"X-Agent-Name": "product_agent"}, json=malformed
-        ).json()
-        assert response["error"]["code"] == -32602
-    healthy = api.post(
-        "/mcp",
-        headers={"X-Agent-Name": "product_agent"},
-        json={
+    with client() as api:
+        malformed = {
             "jsonrpc": "2.0",
-            "id": 6,
+            "id": 5,
             "method": "tools/call",
-            "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
-        },
-    ).json()
-    assert healthy["result"]["structuredContent"]["stock"] == 126
+            "params": {"name": "product.stock", "arguments": {"wrong": "SKU-1001"}},
+        }
+        for _ in range(5):
+            # FastMCP rejects malformed arguments via pydantic before the tool
+            # handler runs, so the failure is an isError result rather than a
+            # -32602 error — and never trips the shared circuit breaker.
+            response = api.post(
+                "/mcp", headers={"X-Agent-Name": "product_agent"}, json=malformed
+            ).json()
+            assert response["result"]["isError"] is True
+        healthy = api.post(
+            "/mcp",
+            headers={"X-Agent-Name": "product_agent"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "tools/call",
+                "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
+            },
+        ).json()
+        assert healthy["result"]["structuredContent"]["stock"] == 126
 
 
 def test_a2a_agent_card_send_and_task_polling():

@@ -39,6 +39,10 @@ class IntentAgent:
                 Intent.AFTER_SALES,
                 ("退货", "换货", "退款", "发票", "投诉", "运费险", "理赔", "售后政策"),
             ),
+            (
+                Intent.SALES_POLICY,
+                ("价保", "优惠券", "满减", "活动规则", "预售规则", "发货规则", "销售规则"),
+            ),
             (Intent.ORDER_QUERY, ("订单", "物流", "快递", "发货", "签收", "到哪")),
             (Intent.RECOMMENDATION, ("推荐", "适合", "选哪", "哪个好", "通勤")),
             (Intent.PRODUCT_DETAIL, ("参数", "规格", "详情", "颜色", "续航", "材质")),

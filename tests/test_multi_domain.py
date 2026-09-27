@@ -64,3 +64,7 @@ def test_recommendation_agent_applies_budget():
     assert result.data["budget"] == 500
     assert all(item["price"] <= 500 for item in result.data["products"])
     assert "AirBeat Lite" in result.answer
+    assert result.data["recommendation_mode"] == "reactive"
+    assert result.data["trigger"] == "explicit_user_intent"
+    assert result.data["cards"][0]["type"] == "product"
+    assert result.data["cards"][0]["actions"][0]["type"] == "query_detail"

@@ -46,3 +46,22 @@ def test_action_request_still_creates_ticket_instead_of_rag_answer():
     )
     assert result.tools_used == ["after_sales.create"]
     assert result.data["ticket"] is not None
+
+
+def test_sales_policy_question_uses_versioned_rag_answer():
+    container = build_container(Settings())
+    result = asyncio.run(
+        container.orchestrator.handle(
+            ChatMessage(
+                user_id="demo-user",
+                session_id="sales-policy-session",
+                content="商品降价后有什么价保规则？",
+            )
+        )
+    )
+    assert result.intent.intent == Intent.SALES_POLICY
+    assert result.routed_agent == "product_agent"
+    assert result.tools_used == ["knowledge.search"]
+    assert "KB-SALES-001" in result.answer
+    assert "版本 2026.09" in result.answer
+    assert result.need_human is False

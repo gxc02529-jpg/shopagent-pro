@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     memory_backend: str = "memory"
     operations_backend: str = "memory"
     session_ttl_seconds: int = 1800
+    session_max_messages: int = 20
+    max_plan_tasks: int = 5
+    max_parallel_tasks: int = 4
     # Calibrated on evaluation/agent_cases.jsonl. Re-run the calibration
     # command whenever the intent model, prompt, labels or traffic mix changes.
     low_confidence_threshold: float = 0.80
@@ -46,6 +49,12 @@ class Settings(BaseSettings):
             raise ValueError("SHOPAGENT_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR or CRITICAL")
         if not 0 < self.low_confidence_threshold < 1:
             raise ValueError("SHOPAGENT_LOW_CONFIDENCE_THRESHOLD must be between 0 and 1")
+        if not 2 <= self.session_max_messages <= 100:
+            raise ValueError("SHOPAGENT_SESSION_MAX_MESSAGES must be between 2 and 100")
+        if not 1 <= self.max_plan_tasks <= 10:
+            raise ValueError("SHOPAGENT_MAX_PLAN_TASKS must be between 1 and 10")
+        if not 1 <= self.max_parallel_tasks <= self.max_plan_tasks:
+            raise ValueError("SHOPAGENT_MAX_PARALLEL_TASKS must be between 1 and max_plan_tasks")
         if self.memory_backend not in {"memory", "redis"}:
             raise ValueError("SHOPAGENT_MEMORY_BACKEND must be memory or redis")
         if self.operations_backend not in {"memory", "mysql"}:

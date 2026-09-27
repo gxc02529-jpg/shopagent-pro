@@ -41,19 +41,19 @@ def test_production_rejects_default_secrets_and_wildcard_cors():
 
 def test_production_mcp_and_a2a_require_service_identity():
     container = build_container(Settings())
-    api = TestClient(create_app(production_settings(), container=container))
-    mcp_payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-    assert api.post("/mcp", json=mcp_payload).status_code == 401
-    assert api.get("/.well-known/agent-card.json").status_code == 401
-    token = issue_token(
-        SERVICE_SECRET,
-        subject="product-agent-service",
-        role="service",
-        agent="product_agent",
-    )
-    headers = {"Authorization": f"Bearer {token}"}
-    assert api.post("/mcp", json=mcp_payload, headers=headers).status_code == 200
-    assert api.get("/.well-known/agent-card.json", headers=headers).status_code == 200
+    with TestClient(create_app(production_settings(), container=container)) as api:
+        mcp_payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        assert api.post("/mcp", json=mcp_payload).status_code == 401
+        assert api.get("/.well-known/agent-card.json").status_code == 401
+        token = issue_token(
+            SERVICE_SECRET,
+            subject="product-agent-service",
+            role="service",
+            agent="product_agent",
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        assert api.post("/mcp", json=mcp_payload, headers=headers).status_code == 200
+        assert api.get("/.well-known/agent-card.json", headers=headers).status_code == 200
 
 
 def test_production_user_identity_is_bound_to_signed_subject():
@@ -67,27 +67,29 @@ def test_production_user_identity_is_bound_to_signed_subject():
 
 
 def test_production_mcp_ignores_spoofed_agent_header():
-    api = TestClient(create_app(production_settings(), container=build_container(Settings())))
-    token = issue_token(
-        SERVICE_SECRET,
-        subject="order-service",
-        role="service",
-        agent="order_agent",
-    )
-    response = api.post(
-        "/mcp",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Agent-Name": "product_agent",
-        },
-        json={
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
-        },
-    )
-    assert response.json()["error"]["code"] == -32602
+    with TestClient(
+        create_app(production_settings(), container=build_container(Settings()))
+    ) as api:
+        token = issue_token(
+            SERVICE_SECRET,
+            subject="order-service",
+            role="service",
+            agent="order_agent",
+        )
+        response = api.post(
+            "/mcp",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Agent-Name": "product_agent",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "product.stock", "arguments": {"product_id": "SKU-1001"}},
+            },
+        )
+        assert response.json()["error"]["code"] == -32602
 
 
 def test_a2a_tasks_are_server_named_and_isolated_by_authenticated_owner():

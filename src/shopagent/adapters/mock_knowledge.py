@@ -39,6 +39,33 @@ DEFAULT_KNOWLEDGE = [
         version="2026.02",
         source="财税服务说明",
     ),
+    KnowledgeDocument(
+        id="KB-SALES-001",
+        domain="sales_policy",
+        title="价格保护规则",
+        content="符合价保范围的商品，在订单支付后七天内发生同店同款直接降价时可申请价格保护。优惠券、赠品、秒杀、预售尾款及平台专项补贴造成的价格差异，以活动页面公示规则为准。",
+        keywords=["价保", "价格保护", "降价", "差价", "七天"],
+        version="2026.09",
+        source="销售政策中心",
+    ),
+    KnowledgeDocument(
+        id="KB-SALES-002",
+        domain="sales_policy",
+        title="优惠券与满减使用规则",
+        content="优惠券是否可与满减叠加，以券面说明和活动页面为准。同一订单默认只能使用一张同类型店铺券；发生部分退款时，优惠金额按商品实付比例分摊。",
+        keywords=["优惠券", "满减", "叠加", "活动规则", "部分退款"],
+        version="2026.09",
+        source="营销活动中心",
+    ),
+    KnowledgeDocument(
+        id="KB-SALES-003",
+        domain="sales_policy",
+        title="预售与发货时效规则",
+        content="现货商品通常在支付后四十八小时内发出；预售商品按商品详情页约定日期发货。大促、定制或不可抗力导致的时效变化，以订单页最新承诺时间和平台公告为准。",
+        keywords=["预售", "发货规则", "发货时效", "四十八小时", "大促"],
+        version="2026.09",
+        source="履约规则中心",
+    ),
 ]
 
 

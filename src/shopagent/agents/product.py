@@ -15,6 +15,32 @@ class ProductAgent:
         self, message: ChatMessage, intent: IntentResult, memory: SessionMemory
     ) -> AgentResult:
         product_id = intent.entities.get("product_id") or str(memory.context.get("product_id", ""))
+        if intent.intent == Intent.SALES_POLICY:
+            data = await self._tools.call(
+                "knowledge.search",
+                agent_name=self.name,
+                query=message.content,
+                domain="sales_policy",
+                limit=3,
+            )
+            hits = data["hits"]
+            if not hits:
+                return AgentResult(
+                    answer="知识库中没有找到当前有效的销售规则，我不会直接猜测，已为你转人工核实。",
+                    data=data,
+                    tools_used=["knowledge.search"],
+                    degraded=True,
+                )
+            evidence = hits[0]
+            return AgentResult(
+                answer=(
+                    f"{evidence['excerpt']}\n"
+                    f"依据：{evidence['title']}（{evidence['source']}，版本 {evidence['version']}，"
+                    f"知识编号 {evidence['document_id']}）"
+                ),
+                data=data,
+                tools_used=["knowledge.search"],
+            )
         if intent.intent == Intent.STOCK_QUERY and product_id:
             result = await self._tools.call(
                 "product.stock", agent_name=self.name, product_id=product_id

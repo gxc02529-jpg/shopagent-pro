@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from itertools import count
 from typing import Any
+
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 
 from shopagent.security.tokens import issue_token
 
 
 class RemoteMCPToolClient:
-    """MCP Streamable-HTTP client used when tools run behind a service boundary."""
+    """MCP Streamable-HTTP tool client used when tools run behind a service boundary.
+
+    Replaces the hand-rolled httpx JSON-RPC client with the maintained
+    ``fastmcp.Client`` + ``StreamableHttpTransport`` pair, while preserving the
+    :class:`ToolClient` protocol the agents already depend on.
+    """
 
     def __init__(
         self,
@@ -19,19 +26,6 @@ class RemoteMCPToolClient:
         self._endpoint = endpoint
         self._service_secret = service_secret
         self._timeout = timeout_seconds
-        self._ids = count(1)
-        self._client = None
-
-    def _http_client(self):
-        if self._client is None:
-            import httpx
-
-            self._client = httpx.AsyncClient(
-                timeout=self._timeout,
-                trust_env=False,
-                limits=httpx.Limits(max_connections=200, max_keepalive_connections=100),
-            )
-        return self._client
 
     async def call(self, name: str, *, agent_name: str, **arguments: Any) -> dict[str, Any]:
         token = issue_token(
@@ -41,35 +35,27 @@ class RemoteMCPToolClient:
             agent=agent_name,
             ttl_seconds=60,
         )
-        request_id = next(self._ids)
-        payload = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "tools/call",
-            "params": {"name": name, "arguments": arguments},
-        }
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "MCP-Protocol-Version": "2025-11-25",
-            # Kept for development interoperability. Production derives the
-            # effective identity from the signed token and ignores this value.
-            "X-Agent-Name": agent_name,
-        }
-        response = await self._http_client().post(self._endpoint, json=payload, headers=headers)
-        response.raise_for_status()
-        body = response.json()
-        if error := body.get("error"):
-            raise RuntimeError(f"MCP error {error.get('code')}: {error.get('message')}")
-        result = body.get("result") or {}
-        if result.get("isError"):
+        transport = StreamableHttpTransport(
+            self._endpoint,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                # Kept for development interoperability. Production derives the
+                # effective identity from the signed token and ignores this value.
+                "X-Agent-Name": agent_name,
+            },
+        )
+        async with Client(transport) as client:
+            result = await client.call_tool(
+                name, arguments=arguments, timeout=self._timeout, raise_on_error=False
+            )
+        if result.is_error:
             raise RuntimeError("MCP tool invocation failed")
-        structured = result.get("structuredContent")
+        structured = result.structured_content
         if not isinstance(structured, dict):
             raise TypeError("MCP response did not include structuredContent")
         return structured
 
     async def close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        # The client is created per call and closed by its own context manager.
+        return None

@@ -19,6 +19,7 @@ class Intent(StrEnum):
     PRODUCT_SEARCH = "product_search"
     PRODUCT_DETAIL = "product_detail"
     STOCK_QUERY = "stock_query"
+    SALES_POLICY = "sales_policy"
     ORDER_QUERY = "order_query"
     AFTER_SALES = "after_sales"
     RECOMMENDATION = "recommendation"

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from shopagent.container import Container, build_container
 from shopagent.domain.models import ChatMessage
 from shopagent.protocols.a2a import A2AServerAdapter
-from shopagent.protocols.mcp import MCPServerAdapter
+from shopagent.protocols.mcp_server import FastMCPServerAdapter
 from shopagent.security.tokens import Principal, TokenError, verify_token
 from shopagent.settings import Settings, get_settings
 
@@ -46,30 +46,33 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     logging.getLogger("httpx").setLevel(max(configured_log_level, logging.WARNING))
     container = container or build_container(settings)
 
-    @asynccontextmanager
-    async def lifespan(_: FastAPI):
-        yield
-        for component in (
-            container.memory,
-            container.operations,
-            container.knowledge_repository,
-            container.commerce,
-            *container.resources,
-        ):
-            try:
-                await component.close()
-            except Exception:
-                logger.exception("failed to close resource: %s", type(component).__name__)
-
-    app = FastAPI(title="ShopAgent Pro API", version="1.0.0", lifespan=lifespan)
-    app.state.container = container
-    mcp = MCPServerAdapter(container.tools)
+    mcp = FastMCPServerAdapter(container.tools, settings)
+    mcp_app = mcp.http_app()
     a2a = A2AServerAdapter(
         container.orchestrator,
         container.agents,
         operations=container.operations,
         task_ttl_seconds=settings.a2a_task_ttl_seconds,
     )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        async with mcp_app.lifespan(app):
+            yield
+            for component in (
+                container.memory,
+                container.operations,
+                container.knowledge_repository,
+                container.commerce,
+                *container.resources,
+            ):
+                try:
+                    await component.close()
+                except Exception:
+                    logger.exception("failed to close resource: %s", type(component).__name__)
+
+    app = FastAPI(title="ShopAgent Pro API", version="1.0.0", lifespan=lifespan)
+    app.state.container = container
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -252,25 +255,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         lines.append(f"shopagent_a2a_tasks_total {board['a2a_task_count']}")
         return "\n".join(lines) + "\n"
 
-    @app.post("/mcp")
-    async def mcp_endpoint(
-        payload: dict,
-        x_agent_name: str = Header(default="product_agent", alias="X-Agent-Name"),
-        mcp_protocol_version: str | None = Header(default=None, alias="MCP-Protocol-Version"),
-        principal: Principal = Depends(require_service),
-    ) -> Response:
-        if mcp_protocol_version and mcp_protocol_version != mcp.protocol_version:
-            return JSONResponse(
-                mcp._error(payload.get("id"), -32602, "Unsupported MCP protocol version"),
-                status_code=400,
-            )
-        agent_name = principal.agent or x_agent_name
-        if _is_production(settings) and not principal.agent:
-            raise HTTPException(status_code=403, detail="service token has no agent identity")
-        result = await mcp.handle(payload, agent_name=agent_name)
-        if result is None:
-            return Response(status_code=202)
-        return JSONResponse(result)
+    app.mount("/mcp", mcp_app)
 
     @app.get("/.well-known/agent-card.json")
     async def root_agent_card(request: Request, _: Principal = Depends(require_service)) -> dict:
