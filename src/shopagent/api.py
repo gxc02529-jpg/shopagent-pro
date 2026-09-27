@@ -474,9 +474,16 @@ def _bound_user_id(claimed_user_id: str | None, principal: Principal | None) -> 
 
 def _bind_chat_user(payload: ChatMessage, principal: Principal | None) -> ChatMessage:
     user_id = _bound_user_id(payload.user_id, principal)
-    return (
-        payload if user_id == payload.user_id else payload.model_copy(update={"user_id": user_id})
-    )
+    if principal is None:
+        return payload
+    # Tenant and department are authorization attributes, never caller-controlled
+    # request metadata. OIDC/JWKS adapters can map their verified claims here.
+    context = {**payload.context, "tenant_id": principal.tenant_id}
+    if principal.department:
+        context["department"] = principal.department
+    else:
+        context.pop("department", None)
+    return payload.model_copy(update={"user_id": user_id, "context": context})
 
 
 def _trusted_a2a_trace(payload: dict, principal: Principal, fallback: str) -> str:

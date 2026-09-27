@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from shopagent.agents.base import AgentRegistry
-from shopagent.domain.models import ChatMessage, IntentResult, SessionMemory
+from shopagent.domain.models import ChatMessage, DelegatedMemory, IntentResult, SessionMemory
 from shopagent.orchestration.service import ShopAgentOrchestrator
 from shopagent.ports.operations import OperationsStore
 
@@ -130,15 +130,28 @@ class A2AServerAdapter:
                 if isinstance(raw_intent, dict)
                 else classified_intent
             )
-            raw_memory = metadata.get("memory")
+            raw_delegated_memory = metadata.get("delegatedMemory")
+            raw_memory = metadata.get("memory")  # Backward-compatible rolling upgrade path.
             try:
-                memory = (
-                    SessionMemory.model_validate(raw_memory)
-                    if isinstance(raw_memory, dict)
-                    else SessionMemory(user_id=user_id, session_id=context_id)
-                )
-            except ValueError:
-                memory = SessionMemory(user_id=user_id, session_id=context_id)
+                if isinstance(raw_delegated_memory, dict):
+                    memory = DelegatedMemory.model_validate(
+                        raw_delegated_memory
+                    ).to_session_memory()
+                elif isinstance(raw_memory, dict):
+                    legacy = SessionMemory.model_validate(raw_memory)
+                    # Even for an older caller, drop messages and retain only the
+                    # explicitly allowed facts before invoking the domain agent.
+                    memory = DelegatedMemory(
+                        memory_ref=f"legacy://{task_id}",
+                        user_id=legacy.user_id,
+                        session_id=legacy.session_id,
+                        product_id=legacy.context.get("product_id"),
+                        order_id=legacy.context.get("order_id"),
+                    ).to_session_memory()
+                else:
+                    memory = SessionMemory(user_id=user_id, session_id=context_id)
+            except ValueError as exc:
+                raise ValueError("invalid delegated memory context") from exc
             if memory.user_id != user_id or memory.session_id != context_id:
                 raise ValueError("delegated memory scope does not match the A2A message")
             try:

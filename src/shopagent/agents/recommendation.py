@@ -22,6 +22,7 @@ class RecommendationAgent:
             agent_name=self.name,
             query=message.content,
             domain="product",
+            message=message,
         ):
             return curated
         data = await self._tools.call(

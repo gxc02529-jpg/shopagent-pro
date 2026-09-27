@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from shopagent.domain.models import KnowledgeDocument, KnowledgeHit
+from shopagent.domain.models import KnowledgeDocument, KnowledgeHit, KnowledgeScope
 from shopagent.ports.knowledge import KnowledgeRepository
 
 
@@ -11,8 +11,29 @@ class RetrievalBackend(Protocol):
     """Pluggable knowledge-retrieval boundary (character / vector / hybrid)."""
 
     async def search(
-        self, query: str, *, domain: str | None = None, limit: int = 3
+        self,
+        query: str,
+        *,
+        domain: str | None = None,
+        limit: int = 3,
+        scope: KnowledgeScope | None = None,
     ) -> list[KnowledgeHit]: ...
+
+
+def _is_eligible(document: KnowledgeDocument, scope: KnowledgeScope) -> bool:
+    if document.tenant_id not in {"global", scope.tenant_id}:
+        return False
+    if document.departments and scope.department not in document.departments:
+        return False
+    if document.channels and scope.channel not in document.channels:
+        return False
+    at = scope.at
+    if document.valid_from and at < document.valid_from:
+        return False
+    if document.valid_until and at >= document.valid_until:
+        return False
+    # Untrusted material is quarantined from runtime recall even if it exists in storage.
+    return document.trust_level.value != "untrusted"
 
 
 def _cosine(a, b) -> float:
@@ -31,9 +52,19 @@ class CharacterRecallBackend:
         self._repository = repository
 
     async def search(
-        self, query: str, *, domain: str | None = None, limit: int = 3
+        self,
+        query: str,
+        *,
+        domain: str | None = None,
+        limit: int = 3,
+        scope: KnowledgeScope | None = None,
     ) -> list[KnowledgeHit]:
-        documents = await self._repository.list_documents(domain)
+        scope = scope or KnowledgeScope()
+        documents = [
+            document
+            for document in await self._repository.list_documents(domain)
+            if _is_eligible(document, scope)
+        ]
         ranked = sorted(
             ((self._score(query, document), document) for document in documents),
             key=lambda pair: pair[0],
@@ -83,6 +114,8 @@ class CharacterRecallBackend:
             score=round(score, 4),
             source=document.source,
             version=document.version,
+            trust_level=document.trust_level,
+            evidence_only=document.evidence_only,
         )
 
 
@@ -101,16 +134,26 @@ class VectorRecallBackend:
         self._model = None
 
     async def search(
-        self, query: str, *, domain: str | None = None, limit: int = 3
+        self,
+        query: str,
+        *,
+        domain: str | None = None,
+        limit: int = 3,
+        scope: KnowledgeScope | None = None,
     ) -> list[KnowledgeHit]:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError:
-            return await self._fallback.search(query, domain=domain, limit=limit)
+            return await self._fallback.search(query, domain=domain, limit=limit, scope=scope)
         try:
             if self._model is None:
                 self._model = SentenceTransformer(self._model_name)
-            documents = await self._repository.list_documents(domain)
+            scope = scope or KnowledgeScope()
+            documents = [
+                document
+                for document in await self._repository.list_documents(domain)
+                if _is_eligible(document, scope)
+            ]
             if not documents:
                 return []
             corpus = [f"{doc.title} {doc.content}" for doc in documents]
@@ -122,4 +165,4 @@ class VectorRecallBackend:
                 self._fallback._to_hit(doc, max(0.0, min(1.0, float(sim)))) for doc, sim in ranked
             ]
         except Exception:  # noqa: BLE001 - degrade to character recall on model failure
-            return await self._fallback.search(query, domain=domain, limit=limit)
+            return await self._fallback.search(query, domain=domain, limit=limit, scope=scope)

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Channel(StrEnum):
@@ -27,12 +27,67 @@ class Intent(StrEnum):
     UNKNOWN = "unknown"
 
 
+class KnowledgeCandidateStatus(StrEnum):
+    PENDING = "pending"
+    PUBLISHING = "publishing"
+    PUBLISHED = "published"
+    PUBLISH_FAILED = "publish_failed"
+    REJECTED = "rejected"
+
+
+class KnowledgeTrustLevel(StrEnum):
+    VERIFIED = "verified"
+    INTERNAL = "internal"
+    UNTRUSTED = "untrusted"
+
+
+class LongTermMemoryKey(StrEnum):
+    PREFERRED_CATEGORY = "preferred_category"
+    BUDGET_RANGE = "budget_range"
+    SIZE_PREFERENCE = "size_preference"
+    COLOR_PREFERENCE = "color_preference"
+
+
+class ChatContext(BaseModel):
+    """Whitelisted caller context. Unknown keys fail at the API boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str | None = Field(default=None, max_length=128)
+    message_id: str | None = Field(default=None, max_length=128)
+    trace_id: str | None = Field(default=None, max_length=128)
+    plan_task_id: str | None = Field(default=None, max_length=64)
+    protocol: str | None = Field(default=None, max_length=32)
+    tenant_id: str = Field(default="global", min_length=1, max_length=128)
+    department: str | None = Field(default=None, max_length=128)
+    locale: str | None = Field(default=None, max_length=32)
+
+
+class SessionContext(BaseModel):
+    """Whitelisted durable session facts; never stores arbitrary model output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: str | None = Field(default=None, max_length=128)
+    order_id: str | None = Field(default=None, max_length=128)
+    last_intent: str | None = Field(default=None, max_length=64)
+    last_intents: list[str] = Field(default_factory=list, max_length=5)
+    # Kept as a typed integration flag rather than allowing arbitrary keys.
+    verified: bool | None = None
+
+
 class ChatMessage(BaseModel):
     channel: Channel = Channel.WEB
     user_id: str = Field(min_length=1, max_length=128)
     session_id: str = Field(min_length=1, max_length=128)
     content: str = Field(min_length=1, max_length=4000)
     context: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def validate_context(cls, value: Any) -> dict[str, Any]:
+        validated = ChatContext.model_validate(value or {})
+        return validated.model_dump(exclude_none=True)
 
 
 class IntentResult(BaseModel):
@@ -82,6 +137,23 @@ class KnowledgeDocument(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     version: str = "1.0"
     source: str = "internal"
+    tenant_id: str = Field(default="global", min_length=1, max_length=128)
+    departments: list[str] = Field(default_factory=list, max_length=50)
+    channels: list[Channel] = Field(default_factory=list, max_length=10)
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    trust_level: KnowledgeTrustLevel = KnowledgeTrustLevel.INTERNAL
+    approved_by: str | None = Field(default=None, max_length=128)
+    content_hash: str = Field(default="", max_length=64)
+    evidence_only: bool = True
+
+    @field_validator("valid_until")
+    @classmethod
+    def validate_validity_window(cls, value: datetime | None, info):
+        start = info.data.get("valid_from")
+        if value is not None and start is not None and value <= start:
+            raise ValueError("valid_until must be later than valid_from")
+        return value
 
 
 class KnowledgeHit(BaseModel):
@@ -91,6 +163,17 @@ class KnowledgeHit(BaseModel):
     score: float = Field(ge=0, le=1)
     source: str
     version: str
+    trust_level: KnowledgeTrustLevel = KnowledgeTrustLevel.INTERNAL
+    evidence_only: bool = True
+
+
+class KnowledgeScope(BaseModel):
+    """Authorization filters applied before knowledge is eligible for recall."""
+
+    tenant_id: str = Field(default="global", min_length=1, max_length=128)
+    department: str | None = Field(default=None, max_length=128)
+    channel: Channel | None = None
+    at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MemoryMessage(BaseModel):
@@ -105,6 +188,55 @@ class SessionMemory(BaseModel):
     messages: list[MemoryMessage] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def validate_context(cls, value: Any) -> dict[str, Any]:
+        validated = SessionContext.model_validate(value or {})
+        return validated.model_dump(exclude_none=True)
+
+
+class DelegatedMemory(BaseModel):
+    """Minimal A2A state: identity, an opaque reference and task-relevant facts only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    memory_ref: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
+    session_id: str = Field(min_length=1, max_length=128)
+    product_id: str | None = Field(default=None, max_length=128)
+    order_id: str | None = Field(default=None, max_length=128)
+
+    def to_session_memory(self) -> SessionMemory:
+        context = {
+            key: value
+            for key, value in {"product_id": self.product_id, "order_id": self.order_id}.items()
+            if value
+        }
+        return SessionMemory(user_id=self.user_id, session_id=self.session_id, context=context)
+
+
+class LongTermMemoryFact(BaseModel):
+    """Governed personal-memory write contract; persistence is intentionally opt-in."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    user_id: str = Field(min_length=1, max_length=128)
+    key: LongTermMemoryKey
+    value: str = Field(min_length=1, max_length=500)
+    source_trace_id: str = Field(min_length=1, max_length=128)
+    confidence: float = Field(ge=0, le=1)
+    consent_id: str = Field(min_length=1, max_length=128)
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("expires_at")
+    @classmethod
+    def validate_expiry(cls, value: datetime) -> datetime:
+        if value <= datetime.now(UTC):
+            raise ValueError("long-term memory must have a future expiry")
+        return value
 
 
 class AgentResult(BaseModel):
@@ -161,8 +293,9 @@ class KnowledgeCandidate(BaseModel):
     suggested_answer: str = ""
     reason: str
     domain: str
-    status: str = "pending"
+    status: KnowledgeCandidateStatus = KnowledgeCandidateStatus.PENDING
     reviewed_by: str | None = None
+    risk_flags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

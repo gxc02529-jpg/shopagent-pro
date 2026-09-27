@@ -63,6 +63,7 @@ class OrderAgent:
             agent_name=self.name,
             query=message.content,
             domain="order",
+            message=message,
         ):
             return curated
 

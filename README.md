@@ -30,6 +30,25 @@ REST / SSE 网关
 
 MCP 不承担 Agent 协作，A2A 不替代细粒度工具协议。生产链路会真实跨越两个 HTTP 协议边界，并由自动化测试验证调用次数和协议指标。
 
+## 为什么没有直接使用 LangGraph
+
+这不是“分层/六边形架构与 LangGraph 二选一”。分层架构解决宏观职责，六边形架构解决业务核心与基础设施的依赖方向，LangGraph 是图状工作流与持久化执行引擎，它们处在不同层级，技术上可以共存。
+
+当前主流程是有边界的电商交易流程：意图分类、置信度门禁、最多 5 个子任务、4 个领域 Agent、明确的超时/幂等/人工转接语义，因此选择了轻量、显式、可审计的编排器：
+
+- 领域 Agent 可作为独立 A2A 服务部署，不需共享 LangGraph 图对象、Checkpointer 或状态序列化格式；
+- 交易写操作的幂等键、工具权限、超时与熔断在 MCP/适配器边界显式处理，不隐藏在图节点回调里；
+- 当前没有无界的 LLM 自主循环，引入图引擎会增加运行时、存储和排障概念，但对现有有界状态流程收益有限；
+- Port/Adapter 边界使编排引擎也是可替换实现，未来可在不改 Agent、MCP 工具和业务适配器的情况下引入 LangGraph。
+
+如果后续出现跨数小时/数天的长流程、大量动态分支和循环、人工审批后断点续跑、需要保存每个节点快照时，LangGraph 会比继续扩展自研编排更合适。引入方式应是替换 `orchestration` 内部实现，而不是推翻 A2A、MCP 和六边形边界。
+
+### 显式状态机如何实现
+
+会话请求由 `ShopAgentOrchestrator` 驱动：`RECEIVED → GUARDED → CLASSIFIED → PLANNED → RUNNING → AGGREGATED → MEMORY_COMMITTED → RESPONDED`。子任务只能落入 `completed / partial / failed / input_required / skipped / blocked / rejected` 等明确结果；前置失败可阻断依赖任务，独立任务失败不会撤销其他成功结果。同一会话的迁移在 Redis 分布式锁内执行，最终只由编排器写回一次记忆。
+
+知识发布是另一个持久化状态机：`pending → publishing → published`，审核拒绝进入 `rejected`，发布依赖失败进入 `publish_failed`，只允许 `publish_failed → publishing` 重试。迁移通过存储层的“当前状态必须等于预期状态”条件更新，多个审核人并发操作时只有一个能成功。A2A Task 使用标准 `TASK_STATE_COMPLETED / FAILED / REJECTED` 对外暴露最终状态。
+
 ## 主要能力
 
 - 商品搜索、详情、库存和个性化推荐
@@ -68,6 +87,15 @@ MCP 不承担 Agent 协作，A2A 不替代细粒度工具协议。生产链路�
 - 会话记忆保存用户当前会话：最近 20 条消息、`product_id`、`order_id` 和最近意图；开发环境使用内存 TTL，生产使用 Redis 滑动 TTL，默认 30 分钟。
 - Redis Key 由 `user_id + session_id` 的无碰撞长度编码再哈希生成，并使用分布式会话锁，避免跨用户读取和多 Pod 并发覆盖。
 - 当前没有把用户偏好永久写成长时个人记忆；RAG 也不等于个人记忆。长期偏好需要独立同意、删除、过期和审计策略后再接入。
+
+### 上下文与知识污染防护
+
+- `ChatContext` 和 `SessionContext` 使用 Pydantic 白名单模型，未声明字段在 API 边界直接拒绝；租户/部门从已验证 Token 绑定，不信任请求体的自报权限；
+- A2A 只传递哈希化 `memory_ref`、`user_id/session_id` 和当前任务需要的 `product_id/order_id`，不复制完整对话历史；
+- 知识召回前过滤租户、部门、渠道、生效/失效时间和可信级别，`untrusted` 内容不会进入运行时召回；
+- 入库前扫描指令覆盖语句和 PII，高危内容直接进入 `rejected`；同标题或多关键词的不同答案记录 `potential_conflict` 供审核；
+- 发布知识记录来源、版本、审批人、可信级别和 SHA-256 内容哈希，检索结果标记 `evidence_only=true`，不得当作系统指令执行；
+- 长期记忆写入契约只允许品类、预算、尺码和颜色等枚举偏好，必须有用户同意 ID、来源 trace、≥0.80 置信度和 1–365 天过期时间，PII 不得写入。当前仅提供契约与门禁，默认不启用长期个人记忆持久化。
 
 ## MCP 失败与网络延迟策略
 
@@ -165,7 +193,7 @@ python benchmarks/http_benchmark.py `
 - MCP 工具身份和 A2A 调用方身份由已验证 Token 推导
 - Redis 会话隔离、滑动 TTL、无碰撞键和分布式会话锁
 - MySQL 持久化交互、反馈、知识、订单、工单和 A2A Task
-- PII 脱敏、Prompt Injection 基础护栏和写操作幂等
+- PII 脱敏、Prompt Injection 护栏、知识入库扫描和写操作幂等
 - 非 root、只读容器与不包含明文 Secret 的 Kubernetes 清单
 - Python 3.11/3.12、Redis、MySQL 和 Docker 的 GitHub Actions 验证
 
@@ -222,7 +250,7 @@ python -m pytest --cov=shopagent --cov-report=term-missing tests
 python -m build
 ```
 
-没有 Redis/MySQL 时，本地结果为 `92 passed, 2 skipped`。两项跳过测试是 live Redis/MySQL 集成验证。
+没有 Redis/MySQL 时，本地结果为 `105 passed, 2 skipped`。两项跳过测试是 live Redis/MySQL 集成验证。
 
 执行真实中间件测试：
 
@@ -242,6 +270,7 @@ GitHub Actions 会自动启动 Redis 和 MySQL，分别在 Python 3.11、3.12 �
 - `tests/test_api_e2e_enterprise.py`：验证反馈、审核、审计和运营看板闭环
 - `tests/test_integration_backends.py`：验证真实 Redis/MySQL 读写生命周期
 - `tests/test_evaluation.py`：锁定 Agent 质量门禁和 0.80 阈值校准结果
+- `tests/test_context_and_knowledge_governance.py`：验证上下文白名单、A2A 最小化传输、知识权限过滤、入库防污染和长期记忆写入门禁
 
 ## 代码结构
 

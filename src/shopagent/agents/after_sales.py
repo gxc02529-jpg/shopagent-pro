@@ -47,6 +47,9 @@ class AfterSalesAgent:
                 query=message.content,
                 domain="after_sales",
                 limit=3,
+                tenant_id=str(message.context.get("tenant_id", "global")),
+                department=message.context.get("department"),
+                channel=message.channel.value,
             )
             hits = data["hits"]
             if not hits:

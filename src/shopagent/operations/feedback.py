@@ -6,10 +6,17 @@ from shopagent.domain.models import (
     AuditEvent,
     FeedbackRecord,
     KnowledgeCandidate,
+    KnowledgeCandidateStatus,
     KnowledgeDocument,
+    KnowledgeTrustLevel,
 )
 from shopagent.ports.knowledge import KnowledgeRepository
 from shopagent.ports.operations import OperationsStore
+from shopagent.security.knowledge_governance import (
+    KnowledgePolicyViolation,
+    scan_knowledge_document,
+    seal_knowledge_document,
+)
 from shopagent.security.redaction import redact_sensitive_text
 
 
@@ -88,15 +95,20 @@ class FeedbackLoopService:
     async def review(
         self, candidate_id: str, *, approved: bool, reviewer: str
     ) -> KnowledgeCandidate:
-        claimed_status = "publishing" if approved else "rejected"
+        claimed_status = (
+            KnowledgeCandidateStatus.PUBLISHING if approved else KnowledgeCandidateStatus.REJECTED
+        )
         updated = await self._store.update_candidate_status(
-            candidate_id, "pending", new_status=claimed_status, reviewed_by=reviewer
+            candidate_id,
+            KnowledgeCandidateStatus.PENDING,
+            new_status=claimed_status,
+            reviewed_by=reviewer,
         )
         if not updated and approved:
             updated = await self._store.update_candidate_status(
                 candidate_id,
-                "publish_failed",
-                new_status="publishing",
+                KnowledgeCandidateStatus.PUBLISH_FAILED,
+                new_status=KnowledgeCandidateStatus.PUBLISHING,
                 reviewed_by=reviewer,
             )
         if not updated:
@@ -107,23 +119,51 @@ class FeedbackLoopService:
         candidate = await self._store.get_candidate(candidate_id)
         if approved:
             answer = candidate.suggested_answer.strip() or candidate.current_answer
+            document = KnowledgeDocument(
+                id=f"KB-FEEDBACK-{candidate.id[3:]}",
+                domain=candidate.domain,
+                title=f"反馈改进：{candidate.question[:30]}",
+                content=answer,
+                keywords=[candidate.question],
+                version=f"feedback-{candidate.id.lower()}",
+                source="客服反馈审核",
+                trust_level=KnowledgeTrustLevel.VERIFIED,
+                approved_by=reviewer,
+                evidence_only=True,
+            )
             try:
-                await self._knowledge.upsert(
-                    KnowledgeDocument(
-                        id=f"KB-FEEDBACK-{candidate.id[3:]}",
-                        domain=candidate.domain,
-                        title=f"反馈改进：{candidate.question[:30]}",
-                        content=answer,
-                        keywords=[candidate.question],
-                        version="feedback-v1",
-                        source="客服反馈审核",
+                list_documents = getattr(self._knowledge, "list_documents", None)
+                existing = (
+                    await list_documents(candidate.domain) if list_documents is not None else []
+                )
+                risk_flags = scan_knowledge_document(document, existing)
+                document = seal_knowledge_document(document)
+                if risk_flags:
+                    candidate = candidate.model_copy(update={"risk_flags": risk_flags})
+                    await self._store.update_candidate(candidate)
+                await self._knowledge.upsert(document)
+            except KnowledgePolicyViolation:
+                await self._store.update_candidate_status(
+                    candidate_id,
+                    KnowledgeCandidateStatus.PUBLISHING,
+                    new_status=KnowledgeCandidateStatus.REJECTED,
+                    reviewed_by=reviewer,
+                )
+                await self._store.record_audit(
+                    AuditEvent(
+                        id=f"AUD-{uuid4().hex[:12].upper()}",
+                        event_type="knowledge.policy_rejected",
+                        actor_id=reviewer,
+                        entity_id=candidate.id,
+                        trace_id=candidate.trace_id,
                     )
                 )
+                raise
             except Exception:
                 await self._store.update_candidate_status(
                     candidate_id,
-                    "publishing",
-                    new_status="publish_failed",
+                    KnowledgeCandidateStatus.PUBLISHING,
+                    new_status=KnowledgeCandidateStatus.PUBLISH_FAILED,
                     reviewed_by=reviewer,
                 )
                 await self._store.record_audit(
@@ -138,15 +178,15 @@ class FeedbackLoopService:
                 raise
             finalized = await self._store.update_candidate_status(
                 candidate_id,
-                "publishing",
-                new_status="published",
+                KnowledgeCandidateStatus.PUBLISHING,
+                new_status=KnowledgeCandidateStatus.PUBLISHED,
                 reviewed_by=reviewer,
             )
             if not finalized:
                 await self._store.update_candidate_status(
                     candidate_id,
-                    "publishing",
-                    new_status="publish_failed",
+                    KnowledgeCandidateStatus.PUBLISHING,
+                    new_status=KnowledgeCandidateStatus.PUBLISH_FAILED,
                     reviewed_by=reviewer,
                 )
                 raise RuntimeError("candidate publication state changed unexpectedly")

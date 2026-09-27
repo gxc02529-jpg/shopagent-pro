@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from shopagent.domain.models import KnowledgeHit
+from shopagent.domain.models import KnowledgeHit, KnowledgeScope
 from shopagent.ports.knowledge import KnowledgeRepository
 from shopagent.ports.retrieval import CharacterRecallBackend, RetrievalBackend
 
@@ -17,6 +17,11 @@ class KnowledgeService:
         self._backend = backend or CharacterRecallBackend(repository)
 
     async def search(
-        self, query: str, *, domain: str | None = None, limit: int = 3
+        self,
+        query: str,
+        *,
+        domain: str | None = None,
+        limit: int = 3,
+        scope: KnowledgeScope | None = None,
     ) -> list[KnowledgeHit]:
-        return await self._backend.search(query, domain=domain, limit=limit)
+        return await self._backend.search(query, domain=domain, limit=limit, scope=scope)

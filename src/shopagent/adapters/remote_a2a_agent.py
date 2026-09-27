@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from uuid import uuid4
 
-from shopagent.domain.models import AgentResult, ChatMessage, IntentResult, SessionMemory
+from shopagent.domain.models import (
+    AgentResult,
+    ChatMessage,
+    DelegatedMemory,
+    IntentResult,
+    SessionMemory,
+)
 from shopagent.security.tokens import issue_token
 
 
@@ -37,6 +45,21 @@ class RemoteA2AAgent:
     async def execute(
         self, message: ChatMessage, intent: IntentResult, memory: SessionMemory
     ) -> AgentResult:
+        memory_ref = (
+            "memory://"
+            + hmac.new(
+                self._service_secret.encode(),
+                f"{memory.user_id}\0{memory.session_id}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+        )
+        delegated_memory = DelegatedMemory(
+            memory_ref=memory_ref,
+            user_id=memory.user_id,
+            session_id=memory.session_id,
+            product_id=memory.context.get("product_id"),
+            order_id=memory.context.get("order_id"),
+        )
         payload = {
             "message": {
                 "role": "ROLE_USER",
@@ -48,7 +71,10 @@ class RemoteA2AAgent:
                     "delegated": True,
                     "traceId": message.context.get("trace_id"),
                     "intent": intent.model_dump(mode="json"),
-                    "memory": memory.model_dump(mode="json"),
+                    # Do not copy the full conversation across the A2A boundary.
+                    # Domain agents receive only an opaque reference and fields needed
+                    # to execute this task.
+                    "delegatedMemory": delegated_memory.model_dump(mode="json"),
                     "messageContext": message.context,
                 },
             }

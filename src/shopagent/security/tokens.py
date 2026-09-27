@@ -20,6 +20,8 @@ class Principal:
     subject: str
     role: PrincipalRole
     agent: str | None = None
+    tenant_id: str = "global"
+    department: str | None = None
 
 
 def issue_token(
@@ -28,6 +30,8 @@ def issue_token(
     subject: str,
     role: PrincipalRole,
     agent: str | None = None,
+    tenant_id: str = "global",
+    department: str | None = None,
     ttl_seconds: int = 3600,
     now: int | None = None,
 ) -> str:
@@ -44,6 +48,13 @@ def issue_token(
     }
     if agent:
         payload["agent"] = agent
+    if not tenant_id or len(tenant_id) > 128:
+        raise ValueError("tenant_id must contain 1 to 128 characters")
+    payload["tenant_id"] = tenant_id
+    if department:
+        if len(department) > 128:
+            raise ValueError("department must contain at most 128 characters")
+        payload["department"] = department
     encoded = _encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
     signature = _sign(secret, f"v1.{encoded}".encode())
     return f"v1.{encoded}.{signature}"
@@ -85,7 +96,21 @@ def verify_token(
     agent = payload.get("agent")
     if agent is not None and (not isinstance(agent, str) or not agent or len(agent) > 128):
         raise TokenError("invalid token agent")
-    return Principal(subject=subject, role=role, agent=agent)
+    tenant_id = payload.get("tenant_id", "global")
+    if not isinstance(tenant_id, str) or not tenant_id or len(tenant_id) > 128:
+        raise TokenError("invalid token tenant")
+    department = payload.get("department")
+    if department is not None and (
+        not isinstance(department, str) or not department or len(department) > 128
+    ):
+        raise TokenError("invalid token department")
+    return Principal(
+        subject=subject,
+        role=role,
+        agent=agent,
+        tenant_id=tenant_id,
+        department=department,
+    )
 
 
 def _sign(secret: str, message: bytes) -> str:

@@ -22,6 +22,9 @@ class ProductAgent:
                 query=message.content,
                 domain="sales_policy",
                 limit=3,
+                tenant_id=str(message.context.get("tenant_id", "global")),
+                department=message.context.get("department"),
+                channel=message.channel.value,
             )
             hits = data["hits"]
             if not hits:
@@ -79,6 +82,7 @@ class ProductAgent:
             agent_name=self.name,
             query=message.content,
             domain="product",
+            message=message,
         ):
             return curated
 
